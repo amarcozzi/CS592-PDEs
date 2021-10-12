@@ -5,6 +5,18 @@ from scipy import sparse
 from scipy import interpolate
 from scipy.integrate import solve_ivp
 
+
+# Helper functions
+def C_to_K(x):
+    """ Converts Celsius to Kelvin """
+    return x + 273.15
+
+
+def K_to_C(x):
+    """ Converts Kelvin to Celsius """
+    return x - 273.15
+
+
 # Load in the data
 data = np.array([[801., -1.4404231],
                  [741., -3.3368846],
@@ -46,39 +58,30 @@ data = np.array([[801., -1.4404231],
                  [21., -9.4867308],
                  [1., -9.6111923]])
 
-data[:, 1] += 273.25
-
-def C_to_K(x):
-    """ Converts Celsius to Kelvin """
-    return x + 273.15
-
-
-def K_to_C(x):
-    """ Converts Kelvin to Celsius """
-    return x - 273.15
-
+# Convert the data from C to K
+data[:, 1] = C_to_K(data[:, 1])
 
 # Find a surface temperature by interpolating the provided data
-interp = interpolate.interp1d(data[:, 0], data[:, 1], kind='quadratic', fill_value='extrapolate')
-theta_s = float(interp(0))
+interp = interpolate.interp1d(data[:, 0], data[:, -1], kind='quadratic', fill_value='extrapolate')
 
 # Define Constants
 z_s = 0  # m
 z_b = -data[0, 0]  # m
 theta_b = data[0, 1]
+theta_s = data[-1, 1]
 g = 9.81  # m/s^2
 spy = 31556926  # s/a
 rho = 911  # kg/m^3
 C = 2009  # J/kg/K
-beta = 9.8e-8  # K/Pa
+beta = 9.8e8  # K/Pa
 k = 2.1  # W/m/K
 u_s = (1 / spy) * 90  # m/s
 u_b = (1 / spy) * 1e-12  # m/s
-a_dot = (1 / spy) * -1  # m/s
+a_dot = 0  # m/s
 dzs_dx = np.radians(0.7)
 # lamda = C_to_K(7e-3)
 lamda = 7e-3
-Q_geo = 32e-3
+Q_geo = 32e3
 
 # Constants that depend on constants above
 theta_pmp = -beta * rho * g * (z_s - z_b)
@@ -114,8 +117,8 @@ def phi_func(z):
 
 
 # Create a vector of different heights to sample the temperature
-time_bounds = [0, 50 * spy]
-dt = spy/1000
+time_bounds = [0, 5 * spy]
+dt = spy / 1000
 Nt = int((time_bounds[1] - time_bounds[0]) / dt)
 num = 100
 z_vec = np.linspace(-data[0, 0], data[-1, 0], num)
@@ -144,18 +147,20 @@ B = u_func(z_vec) * dtheta_dx
 D = phi_func(z_vec) / rho / C
 
 boundary_constant = data[0, 1] - z_b * Q_geo / k
+
+
 def fix_boundary(y, t):
-    y[0] = theta_s
-    if y[-1] < theta_pmp:
-        # y[-1] = bc_integrator.integrate(t)
-        y[-1] += dz * Q_geo / k + boundary_constant
-    else:
-        y[-1] = theta_pmp
+    y[-1] = theta_s
+    y[0] = theta_b
+    # y[0] += dz * Q_geo / k + boundary_constant
+    # if y[0] < theta_pmp:
+    #     # y[-1] = bc_integrator.integrate(t)
+    #     y[0] += dz * Q_geo / k + boundary_constant
+    #     pass
+    # else:
+    #     y[0] = theta_pmp
+    #     pass
     return y
-
-
-def neumann(y, t):
-    return Q_geo / k
 
 
 def f(t, y):
@@ -166,29 +171,11 @@ def f(t, y):
 
 
 initial_values = interp(z_vec)
-
-# bc_integrator = ode(neumann)
-# bc_integrator.set_integrator('dop853', atol=1e-12)
-# bc_integrator.set_initial_value(initial_values[-1], time_bounds[0])
-
-# integrator = ode(f)
-# integrator.set_integrator('dop853', atol=1e-12)
-# integrator.set_f_params(A, B, C, D)
-# integrator.set_initial_value(initial_values, time_bounds[0])
-
-# pbar_model = tqdm.tqdm(total=(Nt - 1), position=0)
-# while integrator.t <= time_bounds[-1]:
-#     theta = integrator.integrate(integrator.t + dt)
-#     theta = fix_boundary(integrator.y, integrator.t)
-#     pbar_model.update(1)
-
-# Convert theta back to celcius
-# theta = K_to_C(theta)
-
+# initial_values = np.zeros(z_vec.shape)
 solution = solve_ivp(f, time_bounds, initial_values, method='RK45')
 theta = solution.y[:, -1]
 
 plt.plot(data[:, 1], -data[:, 0])
-plt.plot(solution.y[:, 0], z_vec)
+plt.plot(solution.y[:, -1], z_vec)
 plt.show()
-print(f'\nDone {theta.min()}, {theta.max()}')
+print(f'\nDone {theta[0]}, {theta[-1]}')
