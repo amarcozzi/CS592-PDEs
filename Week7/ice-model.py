@@ -48,6 +48,7 @@ data = np.array([[801., -1.4404231],
 
 data[:, 1] += 273.25
 
+
 def C_to_K(x):
     """ Converts Celsius to Kelvin """
     return x + 273.15
@@ -65,11 +66,12 @@ theta_s = float(interp(0))
 # Define Constants
 z_s = 0  # m
 z_b = -data[0, 0]  # m
+# z_b = -4000
 theta_b = data[0, 1]
 g = 9.81  # m/s^2
 spy = 31556926  # s/a
 rho = 911  # kg/m^3
-C = 2009  # J/kg/K
+C_p = 2009  # J/kg/K
 beta = 9.8e-8  # K/Pa
 k = 2.1  # W/m/K
 u_s = (1 / spy) * 90  # m/s
@@ -81,7 +83,7 @@ lamda = 7e-3
 Q_geo = 32e-3
 
 # Constants that depend on constants above
-theta_pmp = -beta * rho * g * (z_s - z_b)
+theta_pmp = C_to_K(-beta * rho * g * (z_s - z_b))
 dtheta_dx = lamda * dzs_dx
 
 
@@ -95,12 +97,12 @@ def sigma(z_i):
 
 def u_func(z):
     """ Horizontal ice velocity at depth (m/s) """
-    return u_s * (1 - sigma(z))
+    return u_s * (1 - np.power(sigma(z), 4)) / spy
 
 
 def w_func(z):
     """ Vertical ice velocity (m/s) """
-    return -a_dot * (1 - sigma((5 / 4) - (sigma(z) / 4)))
+    return -a_dot * (1 - sigma((5 / 4) - (np.power(sigma(z), 4) / 4))) / spy
 
 
 def du_dz_func(z):
@@ -114,81 +116,82 @@ def phi_func(z):
 
 
 # Create a vector of different heights to sample the temperature
-time_bounds = [0, 50 * spy]
-dt = spy/1000
-Nt = int((time_bounds[1] - time_bounds[0]) / dt)
+time_bounds = [0, 5000 * spy]
 num = 100
-z_vec = np.linspace(-data[0, 0], data[-1, 0], num)
+z_vec = np.linspace(0, z_b, num)
 dz = (data[0, 0] - data[-1, 0]) / num
 
 # Apply finite difference to first term in the PDE (d^2 theta / d z^2)
-constant = k / rho / C / dz ** 2
-left = 1 * constant
-center = -2 * constant
-right = 1 * constant
-A = sparse.diags([left, center, right], [-1, 0, 1], shape=[num, num])
-A = sparse.csc_matrix(A)
+constant = k / rho / C_p / dz ** 2
+left_4 = -1/560
+left_3 = 8/315
+left_2 = -1/5
+left_1 = 8/5
+center = -205/72
+right_1 = 8/5
+right_2 = -1/5
+right_3 = 8/315
+right_4 = -1/560
+A = sparse.diags([left_4, left_3, left_2, left_1, center, right_1, right_2, right_3, right_4], [-4, -3, -2, -1, 0, 1, 2, 3, 4], shape=[num, num])
+A = constant * sparse.csc_matrix(A)
 
 # Apply finite different to second term in the PDE (d theta / d z)
 w = w_func(z_vec)
-constant = 1 / (2 * dz)
-left = -1 * constant
-right = 1 * constant
-C = sparse.diags([left, right], [-1, 1], shape=[num, num])
-C = w * sparse.csc_matrix(C)
+constant = 1 / dz
 
-AC = A + C
+# FORWARD FINITE DIFFERENCE
+# center = -49/20
+# right_1 = 6
+# right_2 = -15/2
+# right_3 = 20/3
+# right_4 = -15/4
+# right_5 = 6/5
+# right_6 = -1/6
+# C = sparse.diags([center, right_1, right_2, right_3, right_4, right_5, right_6], [0, 1, 2, 3, 4, 5, 6], shape=[num, num])
+
+# # BACKWARD FINITE DIFFERENCE
+center = 11/6
+left_1 = -3
+left_2 = 3/2
+left_3 = -1/3
+C = sparse.diags([left_2, left_1, center], [-2, -1, 0], shape=[num, num])
+
+C = w * constant * sparse.csc_matrix(C)
+
+AC = A - C
 
 # Constants in the PDE
 B = u_func(z_vec) * dtheta_dx
-D = phi_func(z_vec) / rho / C
+D = phi_func(z_vec) / rho / C_p
 
-boundary_constant = data[0, 1] - z_b * Q_geo / k
+boundary_constant = theta_b - z_b * Q_geo / k
+
+
 def fix_boundary(y, t):
+    y = y.squeeze()
     y[0] = theta_s
     if y[-1] < theta_pmp:
-        # y[-1] = bc_integrator.integrate(t)
-        y[-1] += dz * Q_geo / k + boundary_constant
+        new_value = dz * Q_geo / k + boundary_constant
+        fd = (2/3)*(Q_geo/k/dz - 0.5 * y[-2] + 2 * y[-1])
+        y[-1] = new_value
     else:
         y[-1] = theta_pmp
+    y[y > theta_pmp] = theta_pmp
     return y
 
 
-def neumann(y, t):
-    return Q_geo / k
-
-
 def f(t, y):
-    y = y.squeeze()
     y = fix_boundary(y, t)
-    # return A @ y + B + C @ y + D
-    return AC @ y + B + D
+    new_y = A @ y - B - C @ y + D
+    # new_y = np.array(new_y[0, :]).squeeze()
+    return new_y
 
 
-initial_values = interp(z_vec)
-
-# bc_integrator = ode(neumann)
-# bc_integrator.set_integrator('dop853', atol=1e-12)
-# bc_integrator.set_initial_value(initial_values[-1], time_bounds[0])
-
-# integrator = ode(f)
-# integrator.set_integrator('dop853', atol=1e-12)
-# integrator.set_f_params(A, B, C, D)
-# integrator.set_initial_value(initial_values, time_bounds[0])
-
-# pbar_model = tqdm.tqdm(total=(Nt - 1), position=0)
-# while integrator.t <= time_bounds[-1]:
-#     theta = integrator.integrate(integrator.t + dt)
-#     theta = fix_boundary(integrator.y, integrator.t)
-#     pbar_model.update(1)
-
-# Convert theta back to celcius
-# theta = K_to_C(theta)
-
+initial_values = np.zeros_like(z_vec) + theta_s
 solution = solve_ivp(f, time_bounds, initial_values, method='RK45')
 theta = solution.y[:, -1]
+print(solution.y.shape)
 
 plt.plot(data[:, 1], -data[:, 0])
-plt.plot(solution.y[:, 0], z_vec)
+plt.plot(solution.y[:, -1], z_vec)
 plt.show()
-print(f'\nDone {theta.min()}, {theta.max()}')
