@@ -66,22 +66,22 @@ interp = interpolate.interp1d(data[:, 0], data[:, -1], kind='quadratic', fill_va
 
 # Define Constants
 z_s = 0  # m
-z_b = -data[0, 0]  # m
+z_b = data[0, 0]  # m
 theta_b = data[0, 1]
 theta_s = data[-1, 1]
 g = 9.81  # m/s^2
 spy = 31556926  # s/a
 rho = 911  # kg/m^3
 C = 2009  # J/kg/K
-beta = 9.8e8  # K/Pa
+beta = 9.8e-8  # K/Pa
 k = 2.1  # W/m/K
 u_s = (1 / spy) * 90  # m/s
-u_b = (1 / spy) * 1e-12  # m/s
-a_dot = 0  # m/s
+u_b = (1 / spy) * 1e-6  # m/s
+a_dot = -1.  # m/s
 dzs_dx = np.radians(0.7)
 # lamda = C_to_K(7e-3)
 lamda = 7e-3
-Q_geo = 32e3
+Q_geo = 32e-3
 
 # Constants that depend on constants above
 theta_pmp = -beta * rho * g * (z_s - z_b)
@@ -120,7 +120,7 @@ def phi_func(z):
 time_bounds = [0, 5 * spy]
 dt = spy / 1000
 Nt = int((time_bounds[1] - time_bounds[0]) / dt)
-num = 100
+num = 20
 z_vec = np.linspace(-data[0, 0], data[-1, 0], num)
 dz = (data[0, 0] - data[-1, 0]) / num
 
@@ -151,15 +151,12 @@ boundary_constant = data[0, 1] - z_b * Q_geo / k
 
 def fix_boundary(y, t):
     y[-1] = theta_s
-    y[0] = theta_b
-    # y[0] += dz * Q_geo / k + boundary_constant
-    # if y[0] < theta_pmp:
-    #     # y[-1] = bc_integrator.integrate(t)
-    #     y[0] += dz * Q_geo / k + boundary_constant
-    #     pass
-    # else:
-    #     y[0] = theta_pmp
-    #     pass
+    # y[0] = theta_b
+    if y[0] < theta_pmp:
+        # y[-1] = bc_integrator.integrate(t)
+        y[0] += dz * Q_geo / k + boundary_constant
+    else:
+        y[0] = theta_pmp
     return y
 
 
@@ -170,10 +167,11 @@ def f(t, y):
     return AC @ y + B + D
 
 
-initial_values = interp(z_vec)
-# initial_values = np.zeros(z_vec.shape)
+# initial_values = interp(z_vec)
+initial_values = np.zeros(z_vec.shape) + theta_s
 solution = solve_ivp(f, time_bounds, initial_values, method='RK45')
 theta = solution.y[:, -1]
+print(solution.y.shape)
 
 plt.plot(data[:, 1], -data[:, 0])
 plt.plot(solution.y[:, -1], z_vec)
