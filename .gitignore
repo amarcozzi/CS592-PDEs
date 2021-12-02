@@ -2,3 +2,5 @@
 venv
 firedrake
 .idea/
+Project/reaction_system
+Project/result_supg
