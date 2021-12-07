@@ -4,3 +4,4 @@ firedrake
 .idea/
 Project/reaction_system
 Project/result_supg
+.DS_store
