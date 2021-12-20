@@ -5,3 +5,7 @@ firedrake
 Project/reaction_system
 Project/result_supg
 .DS_store
+feragut_output/
+my_model_output/
+.ipynb_checkpoints/
+Project/advection-diffusion-jvsc-d66212e0-84c1-4812-8334-2e5b2cadb503.ipynb
